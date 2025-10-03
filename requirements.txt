@@ -1,0 +1,7 @@
+kagglehub
+ipykernel
+numpy
+pandas
+matplotlib
+torch
+torchvision

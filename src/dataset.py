@@ -1,9 +1,12 @@
 import os
 import shutil
-from tqdm import tqdm
 
 import kagglehub
 from sklearn.model_selection import train_test_split
+from torch.utils.data import DataLoader
+from torchvision import transforms
+from torchvision.datasets import ImageFolder
+from tqdm import tqdm
 
 IMAGE_TYPE_COLOR = "/plantvillage dataset/color/"
 IMAGE_TYPE_SEGMENTED = "/plantvillage dataset/segmented/"
@@ -37,7 +40,7 @@ def get_data_path(img_type=IMAGE_TYPE_COLOR):
 def split_data():
     root = get_data_path()
 
-    print('splitting dataset')
+    print("splitting dataset")
 
     files = []
 
@@ -57,17 +60,51 @@ def split_data():
         temp_paths, temp_labels, stratify=temp_labels, test_size=1 / 3, random_state=27
     )
 
-    copy_files(train_paths, train_labels, 'train')
-    copy_files(test_paths, test_labels, 'test')
-    copy_files(val_paths, val_labels, 'val')
+    copy_files(train_paths, train_labels, "train")
+    copy_files(test_paths, test_labels, "test")
+    copy_files(val_paths, val_labels, "val")
 
 
 def copy_files(paths, labels, split):
-    print(f'copying {split}...')
+    print(f"copying {split}...")
     for path, label in tqdm(zip(paths, labels)):
         dest_dir = os.path.join(SPLIT_OUT_DIR, split, label)
         os.makedirs(dest_dir, exist_ok=True)
         shutil.copy(path, dest_dir)
+
+
+def get_dataloaders(batch_size):
+    train_dataset = ImageFolder(
+        root=os.path.join(SPLIT_OUT_DIR, "train"),
+        transform=transforms.Compose(
+            [
+                # Add transforms
+                transforms.ToTensor(),
+                transforms.Normalize(  # Adjust for pre trained model
+                    [0.485, 0.456, 0.406], [0.229, 0.224, 0.225]
+                ),
+            ]
+        ),
+    )
+
+    val_dataset = ImageFolder(
+        root=os.path.join(SPLIT_OUT_DIR, "val"),
+        transform=transforms.Compose(
+            [
+                # Not sure if we need transforms here
+                transforms.ToTensor(),
+                transforms.Normalize(  # Adjust for pre trained model
+                    [0.485, 0.456, 0.406], [0.229, 0.224, 0.225]
+                ),
+            ]
+        ),
+    )
+
+    train_loader = DataLoader(train_dataset, batch_size, shuffle=True)  # Shuffle idk???
+    val_loader = DataLoader(val_dataset, batch_size, shuffle=True)  # Shuffle idk???
+
+    return train_loader, val_loader
+
 
 if __name__ == "__main__":
     split_data()

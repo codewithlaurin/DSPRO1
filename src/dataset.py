@@ -49,17 +49,12 @@ def split_data():
             files.append(os.path.join(label_dir, img))
             labels.append(label)
 
-    train_paths, temp_paths, train_labels, temp_labels = train_test_split(
-        files, labels, stratify=labels, test_size=0.3, random_state=27
-    )
-
-    test_paths, val_paths, test_labels, val_labels = train_test_split(
-        temp_paths, temp_labels, stratify=temp_labels, test_size=1 / 3, random_state=27
+    train_paths, test_paths, train_labels, test_labels = train_test_split(
+        files, labels, stratify=labels, test_size=0.2, random_state=27
     )
 
     copy_files(train_paths, train_labels, 'train')
     copy_files(test_paths, test_labels, 'test')
-    copy_files(val_paths, val_labels, 'val')
 
 
 def copy_files(paths, labels, split):

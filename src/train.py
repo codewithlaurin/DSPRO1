@@ -9,6 +9,15 @@ def get_device():
     if hasattr(torch.backends, "mps") and torch.backends.mps.is_available(): return torch.device("mps")
     return torch.device("cpu")
 
+class BinaryMapFolder(datasets.ImageFolder):
+    def __init__(self, root, transform=None):
+        super().__init__(root, transform=transform)
+        self._bin = {idx: (1 if "healthy" in name.lower() else 0)
+                    for name, idx in self.class_to_idx.items()}
+    def __getitem__(self, i):
+        img, y = super().__getitem__(i)
+        return img, self._bin[y]
+
 def main(args):
     device = get_device()
     print("Device:", device)
@@ -18,8 +27,8 @@ def main(args):
         transforms.Normalize([0.485,0.456,0.406],[0.229,0.224,0.225]),
     ])
 
-    train_ds = datasets.ImageFolder(Path(args.data_root)/"train", transform=tf)
-    test_ds  = datasets.ImageFolder(Path(args.data_root)/"test",  transform=tf)
+    train_ds = BinaryMapFolder(Path(args.data_root)/"train", transform=tf)
+    test_ds  = BinaryMapFolder(Path(args.data_root)/"test",  transform=tf)
     train_dl = DataLoader(train_ds, batch_size=args.batch_size, shuffle=True,  num_workers=2, pin_memory=True)
     test_dl  = DataLoader(test_ds,  batch_size=args.batch_size, shuffle=False, num_workers=2, pin_memory=True)
     print("Classes:", train_ds.classes)

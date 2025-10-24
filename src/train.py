@@ -4,6 +4,7 @@ from torch import nn
 from torch.utils.data import DataLoader
 from torchvision import datasets, transforms, models
 from sklearn.metrics import f1_score
+import wandb 
 
 def get_device():
     if torch.cuda.is_available(): return torch.device("cuda")
@@ -20,6 +21,17 @@ class BinaryMapFolder(datasets.ImageFolder):
         return img, self._bin[y]
 
 def main(args):
+    wandb.init(
+        project="plant-health-classification",  
+        config={
+            "epochs": args.epochs,
+            "batch_size": args.batch_size,
+            "learning_rate": args.lr,
+            "optimizer": "SGD",
+            "architecture": "ResNet18",
+        },
+    )
+
     device = get_device()
     print("Device:", device)
 
@@ -42,6 +54,7 @@ def main(args):
     criterion = nn.CrossEntropyLoss()
     # optim = torch.optim.Adam(model.parameters(), lr=args.lr)
     optim = torch.optim.SGD(model.parameters(), lr=args.lr, momentum=0.9)
+    wandb.watch(model, criterion, log="all", log_freq=100)
 
     for epoch in range(1, args.epochs+1):
         model.train()
@@ -60,7 +73,17 @@ def main(args):
             train_preds.extend(logits.argmax(1).detach().cpu().tolist())
             train_targets.extend(y.detach().cpu().tolist())
         train_f1 = f1_score(train_targets, train_preds)
-        print(f"Epoch {epoch:02d} | train_loss={running/total:.4f} train_acc={correct/total:.3f} train_f1={train_f1:.3f}")
+        train_loss = running / total
+        train_acc = correct / total
+        #not really necessary
+        print(f"Epoch {epoch:02d} | train_loss={train_loss:.4f} train_acc={train_acc:.3f} train_f1={train_f1:.3f}")
+
+        wandb.log({
+            "epoch": epoch,
+            "train/loss": train_loss,
+            "train/acc": train_acc,
+            "train/f1": train_f1,
+        })
 
     model.eval()
     total, correct = 0, 0
@@ -75,11 +98,21 @@ def main(args):
             test_preds.extend(pred.cpu().tolist())
             test_targets.extend(y.cpu().tolist())
     test_f1 = f1_score(test_targets, test_preds)
-    print(f"TEST acc = {correct/total:.3f} TEST f1 = {test_f1:.3f}")
+    test_acc = correct / total
+    print(f"TEST acc = {test_acc:.3f} TEST f1 = {test_f1:.3f}")
+
+    wandb.log({
+        "test/acc": test_acc,
+        "test/f1": test_f1,
+    })
 
     out = Path(args.out_dir); out.mkdir(parents=True, exist_ok=True)
+    model_path = out / "resnet18_binary.pt"
     torch.save(model.state_dict(), out/"resnet18_binary.pt")
     print("Saved:", out/"resnet18_binary.pt")
+    wandb.save(str(model_path))
+
+    wandb.finish()
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()

@@ -24,11 +24,16 @@ NUM_EPOCHS = 25
 OUTPUT_DIR = os.path.join(PROJECT_ROOT, "output")
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-device = (
-    torch.accelerator.current_accelerator().type
-    if torch.accelerator.is_available()
-    else "cpu"
-)
+
+def get_device():
+    if torch.cuda.is_available():
+        return torch.device("cuda")
+    if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+        return torch.device("mps")
+    return torch.device("cpu")
+
+
+device = get_device()
 
 
 def evaluate_params():
@@ -39,21 +44,36 @@ def evaluate_params():
     fold_params = []
     fold_scores = []
 
-    print(f"PARAMS: K_FOLDS {K_FOLDS} | BATCH_SIZE {BATCH_SIZE} | LEARNING_RATE {LEARNING_RATE} | MOMENTUM {MOMENTUM} | NUM_EPOCHS {NUM_EPOCHS}")
+    print(
+        f"PARAMS: K_FOLDS {K_FOLDS} | BATCH_SIZE {BATCH_SIZE} | LEARNING_RATE {LEARNING_RATE} | MOMENTUM {MOMENTUM} | NUM_EPOCHS {NUM_EPOCHS}"
+    )
     print(f"Using {device} device")
     print()
 
     for fold, (train_idx, val_idx) in tqdm(
         enumerate(kfold.split(dataset.samples, dataset.targets)), "KFold", leave=False
     ):
+        print()
         train_folder = get_train_dataset(DATA_TRANSFORMS["train"])
         val_folder = get_train_dataset(DATA_TRANSFORMS["val"])
 
         fold_train = Subset(train_folder, train_idx)
         fold_val = Subset(val_folder, val_idx)
 
-        train_loader = DataLoader(fold_train, batch_size=BATCH_SIZE, shuffle=True)
-        val_loader = DataLoader(fold_val, batch_size=BATCH_SIZE, shuffle=False)
+        train_loader = DataLoader(
+            fold_train,
+            batch_size=BATCH_SIZE,
+            shuffle=True,
+            num_workers=4,
+            pin_memory=torch.cuda.is_available(),
+        )
+        val_loader = DataLoader(
+            fold_val,
+            batch_size=BATCH_SIZE,
+            shuffle=False,
+            num_workers=4,
+            pin_memory=torch.cuda.is_available(),
+        )
 
         model = init_model(dataset).to(device)
 
@@ -170,8 +190,6 @@ def epoch_phase(model, criterion, optimizer, loader, train=True):
     if train:
         return 0, loss, acc
 
-    print(total_targets)
-    print(total_preds)
     f1 = f1_score(total_targets, total_preds, average="macro")
 
     return f1, loss, acc

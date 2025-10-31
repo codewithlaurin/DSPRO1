@@ -86,6 +86,9 @@ def evaluate_params():
         fold_params.append(model_params_path)
         fold_scores.append(best_val_metrics)
 
+        tqdm.write(f'--- Fold {fold} metrics ---')
+        tqdm.write(f'loss={best_val_metrics['loss']:.4f} acc={best_val_metrics['acc']:.3f} f1={best_val_metrics['f1']:.3f}')
+
     keys = fold_scores[0].keys()
     summary = {
         k: (
@@ -177,14 +180,14 @@ def epoch_phase(model, criterion, optimizer, loader, train=True):
 
         total_samples += x.size(0)
         running_loss += loss.item() * x.size(0)
-        running_corrects += torch.sum(preds == y.data)
+        running_corrects += torch.sum(preds == y.data).item()
 
         if not train:
             total_preds.extend(preds.cpu().tolist())
             total_targets.extend(y.cpu().tolist())
 
     loss = running_loss / total_samples
-    acc = running_corrects.double() / total_samples
+    acc = running_corrects / total_samples
 
     if train:
         return 0, loss, acc

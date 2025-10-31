@@ -19,7 +19,7 @@ DATA_TRANSFORMS = {
         [
             # Add transforms
             transforms.ToTensor(),
-            transforms.Normalize(  # Adjust for pre trained model
+            transforms.Normalize(
                 [0.485, 0.456, 0.406], [0.229, 0.224, 0.225]
             ),
         ]
@@ -27,7 +27,7 @@ DATA_TRANSFORMS = {
     "val": transforms.Compose(
         [
             transforms.ToTensor(),
-            transforms.Normalize(  # Adjust for pre trained model
+            transforms.Normalize(
                 [0.485, 0.456, 0.406], [0.229, 0.224, 0.225]
             ),
         ]

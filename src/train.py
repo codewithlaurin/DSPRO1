@@ -51,9 +51,8 @@ def evaluate_params():
     print()
 
     for fold, (train_idx, val_idx) in tqdm(
-        enumerate(kfold.split(dataset.samples, dataset.targets)), "KFold", leave=False
+        enumerate(kfold.split(dataset.samples, dataset.targets)), "KFold", K_FOLDS, leave=False
     ):
-        print()
         train_folder = get_train_dataset(DATA_TRANSFORMS["train"])
         val_folder = get_train_dataset(DATA_TRANSFORMS["val"])
 
@@ -126,7 +125,7 @@ def train_fold(fold, model, criterion, optimizer, num_epochs, train_loader, val_
             model, criterion, optimizer, train_loader
         )
 
-        print(
+        tqdm.write(
             f"Fold {fold:02d} | Epoch {epoch:02d} | train_loss={train_loss:.4f} train_acc={train_acc:.3f}"
         )
 
@@ -137,7 +136,7 @@ def train_fold(fold, model, criterion, optimizer, num_epochs, train_loader, val_
                 model, criterion, optimizer, val_loader, False
             )
 
-        print(
+        tqdm.write(
             f"Fold {fold:02d} | Epoch {epoch:02d} | val_loss={val_loss:.4f} val_acc={val_acc:.3f} val_f1={val_f1:.3f}"
         )
 

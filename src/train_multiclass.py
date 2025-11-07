@@ -29,7 +29,6 @@ def main(args):
     print("Device:", device)
 
     tf_train = transforms.Compose([
-        transforms.RandomHorizontalFlip(),
         transforms.ToTensor(),
         transforms.Normalize([0.485,0.456,0.406],[0.229,0.224,0.225]),
     ])
@@ -55,7 +54,7 @@ def main(args):
     criterion = nn.CrossEntropyLoss()
     # optim = torch.optim.Adam(model.parameters(), lr=args.lr)
     optim = torch.optim.SGD(model.parameters(), lr=args.lr, momentum=0.9)
-    wandb.watch(model, criterion, log="all", log_freq=100)
+    #wandb.watch(model, criterion, log="all", log_freq=100)
 
     for epoch in range(1, args.epochs+1):
         model.train()
@@ -115,8 +114,17 @@ def main(args):
             if rows_added < max_rows:
                 for i in range(x.size(0)):
                     if rows_added >= max_rows: break
-                    add_item_to_table(i, x, y, pred, probs, train_ds, table, idx_to_name)
-                
+                    img_tensor = x[i].cpu()
+
+                    mean = torch.tensor([0.485,0.456,0.406]).view(3,1,1)
+                    std  = torch.tensor([0.229,0.224,0.225]).view(3,1,1)
+                    pil_img = to_pil_image((img_tensor * std + mean).clamp(0,1)).convert("RGB")
+
+                    true_label = idx_to_name[int(y[i].cpu().item())]
+                    pred_label = idx_to_name[int(pred[i].cpu().item())]
+                    row_probs = [float(probs[i, j].cpu().item()) for j in range(len(train_ds.classes))]
+
+                    table.add_data(wandb.Image(pil_img), true_label, pred_label, *row_probs)
                     rows_added += 1
 
     
@@ -137,19 +145,6 @@ def main(args):
     wandb.save(str(model_path))
 
     wandb.finish()
-
-def add_item_to_table(i, x, y, pred, probs, train_ds, table, idx_to_name):
-    img_tensor = x[i].cpu()
-
-    mean = torch.tensor([0.485,0.456,0.406]).view(3,1,1)
-    std  = torch.tensor([0.229,0.224,0.225]).view(3,1,1)
-    pil_img = to_pil_image((img_tensor * std + mean).clamp(0,1)).convert("RGB")
-
-    true_label = idx_to_name[int(y[i].cpu().item())]
-    pred_label = idx_to_name[int(pred[i].cpu().item())]
-    row_probs = [float(probs[i, j].cpu().item()) for j in range(len(train_ds.classes))]
-
-    table.add_data(wandb.Image(pil_img), true_label, pred_label, *row_probs)       
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()

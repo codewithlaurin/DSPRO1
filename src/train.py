@@ -4,6 +4,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
+import wandb
 from sklearn.metrics import f1_score
 from sklearn.model_selection import StratifiedKFold
 from sympy.logic.boolalg import true
@@ -37,21 +38,49 @@ device = get_device()
 
 
 def evaluate_params():
-    kfold = StratifiedKFold(K_FOLDS, shuffle=True, random_state=42)
+    # manual config -> remove for sweep
+    config = {
+        "epochs": NUM_EPOCHS,
+        "batch_size": BATCH_SIZE,
+        "learning_rate": LEARNING_RATE,
+        "k_folds": K_FOLDS,
+        "momentum": MOMENTUM,
+        "optimizer": "SGD",
+        "architecture": "ResNet18",
+    }
+
+    with wandb.init(
+        entity="mara-eckart-hochschule-luzern",
+        project="plant-health-classification",
+        config=config,
+    ) as run:
+
+        for fold in range(run.config['k_folds']):
+            run.define_metric(f"fold_{fold}/*", step_metric=f"fold_{fold}/epoch")
+
+        print("PARAMS", end="")
+        for key, value in run.config.items():
+            print(" | " + str(key) + ": " + str(value), end="")
+        print()
+        print(f"Using {device} device")
+        print()
+
+        cross_validation(run, run.config)
+
+
+def cross_validation(run, config):
+    kfold = StratifiedKFold(config["k_folds"], shuffle=True, random_state=42)
 
     dataset: ImageFolder = get_train_dataset()
 
     fold_params = []
     fold_scores = []
 
-    print(
-        f"PARAMS: K_FOLDS {K_FOLDS} | BATCH_SIZE {BATCH_SIZE} | LEARNING_RATE {LEARNING_RATE} | MOMENTUM {MOMENTUM} | NUM_EPOCHS {NUM_EPOCHS}"
-    )
-    print(f"Using {device} device")
-    print()
-
     for fold, (train_idx, val_idx) in tqdm(
-        enumerate(kfold.split(dataset.samples, dataset.targets)), "KFold", K_FOLDS, leave=False
+        enumerate(kfold.split(dataset.samples, dataset.targets)),
+        "KFold",
+        config["k_folds"],
+        leave=False,
     ):
         train_folder = get_train_dataset(DATA_TRANSFORMS["train"])
         val_folder = get_train_dataset(DATA_TRANSFORMS["val"])
@@ -61,14 +90,14 @@ def evaluate_params():
 
         train_loader = DataLoader(
             fold_train,
-            batch_size=BATCH_SIZE,
+            batch_size=config["batch_size"],
             shuffle=True,
             num_workers=4,
             pin_memory=torch.cuda.is_available(),
         )
         val_loader = DataLoader(
             fold_val,
-            batch_size=BATCH_SIZE,
+            batch_size=config["batch_size"],
             shuffle=False,
             num_workers=4,
             pin_memory=torch.cuda.is_available(),
@@ -77,17 +106,38 @@ def evaluate_params():
         model = init_model(dataset).to(device)
 
         criterion = nn.CrossEntropyLoss()
-        optimizer = optim.SGD(model.parameters(), LEARNING_RATE, MOMENTUM)
+
+        # run.watch(model, criterion, log="all", log_freq=100)  # Makes training slower :(
+
+        if config["optimizer"] == "adam":
+            optimizer = optim.Adam(model.parameters(), config["learning_rate"])
+        else:
+            optimizer = optim.SGD(
+                model.parameters(), config["learning_rate"], config["momentum"]
+            )
 
         model_params_path, best_val_metrics = train_fold(
-            fold, model, criterion, optimizer, NUM_EPOCHS, train_loader, val_loader
+            run,
+            fold,
+            model,
+            criterion,
+            optimizer,
+            config["epochs"],
+            train_loader,
+            val_loader,
         )
 
         fold_params.append(model_params_path)
         fold_scores.append(best_val_metrics)
 
-        tqdm.write(f'--- Fold {fold} metrics ---')
-        tqdm.write(f'loss={best_val_metrics['loss']:.4f} acc={best_val_metrics['acc']:.3f} f1={best_val_metrics['f1']:.3f}')
+        tqdm.write(f"--- Fold {fold} metrics ---")
+        tqdm.write(
+            f"loss={best_val_metrics['loss']:.4f} acc={best_val_metrics['acc']:.3f} f1={best_val_metrics['f1']:.3f}"
+        )
+
+        run.summary[f"fold_{fold}/best_loss"] = best_val_metrics["loss"]
+        run.summary[f"fold_{fold}/best_acc"] = best_val_metrics["acc"]
+        run.summary[f"fold_{fold}/best_f1"] = best_val_metrics["f1"]
 
     keys = fold_scores[0].keys()
     summary = {
@@ -102,7 +152,15 @@ def evaluate_params():
     for k, (m, s) in summary.items():
         print(f"{k}: {m:.4f} ± {s:.4f}")
 
-    return summary, fold_params
+    for params in fold_params:
+        run.save(params)
+
+    run.summary["avg_val_acc"] = summary["acc"][0]
+    run.summary["std_val_acc"] = summary["acc"][1]
+    run.summary["avg_val_loss"] = summary["loss"][0]
+    run.summary["std_val_loss"] = summary["loss"][1]
+    run.summary["avg_val_f1"] = summary["f1"][0]
+    run.summary["std_val_f1"] = summary["f1"][1]
 
 
 def init_model(dataset: ImageFolder):
@@ -116,7 +174,9 @@ def init_model(dataset: ImageFolder):
     return model
 
 
-def train_fold(fold, model, criterion, optimizer, num_epochs, train_loader, val_loader):
+def train_fold(
+    run, fold, model, criterion, optimizer, num_epochs, train_loader, val_loader
+):
     model_params_path = os.path.join(OUTPUT_DIR, f"fold{fold}_model_params.pt")
 
     best_metrics = {"f1": -1.0, "acc": 0.0, "loss": float("inf")}
@@ -150,6 +210,17 @@ def train_fold(fold, model, criterion, optimizer, num_epochs, train_loader, val_
             best_metrics["acc"] = val_acc
             best_metrics["loss"] = val_loss
             torch.save(model.state_dict(), model_params_path)
+
+        run.log(
+            {
+                f"fold_{fold}/epoch": epoch,
+                f"fold_{fold}/train_loss": train_loss,
+                f"fold_{fold}/train_acc": train_acc,
+                f"fold_{fold}/val_loss": val_loss,
+                f"fold_{fold}/val_acc": val_acc,
+                f"fold_{fold}/val_f1": val_f1,
+            },
+        )
 
     return model_params_path, best_metrics
 

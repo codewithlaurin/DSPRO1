@@ -4,6 +4,9 @@ from torch import nn
 from torch.utils.data import DataLoader
 from torchvision import datasets, transforms, models
 from sklearn.metrics import f1_score
+import wandb 
+import torch.nn.functional as F
+from torchvision.transforms.functional import to_pil_image
 
 def get_device():
     if torch.cuda.is_available(): return torch.device("cuda")
@@ -20,6 +23,17 @@ class BinaryMapFolder(datasets.ImageFolder):
         return img, self._bin[y]
 
 def main(args):
+    wandb.init(
+        project="plant-health-classification",  
+        config={
+            "epochs": args.epochs,
+            "batch_size": args.batch_size,
+            "learning_rate": args.lr,
+            "optimizer": "SGD",
+            "architecture": "ResNet18",
+        },
+    )
+
     device = get_device()
     print("Device:", device)
 
@@ -42,6 +56,7 @@ def main(args):
     criterion = nn.CrossEntropyLoss()
     # optim = torch.optim.Adam(model.parameters(), lr=args.lr)
     optim = torch.optim.SGD(model.parameters(), lr=args.lr, momentum=0.9)
+    wandb.watch(model, criterion, log="all", log_freq=100)
 
     for epoch in range(1, args.epochs+1):
         model.train()
@@ -60,26 +75,89 @@ def main(args):
             train_preds.extend(logits.argmax(1).detach().cpu().tolist())
             train_targets.extend(y.detach().cpu().tolist())
         train_f1 = f1_score(train_targets, train_preds)
-        print(f"Epoch {epoch:02d} | train_loss={running/total:.4f} train_acc={correct/total:.3f} train_f1={train_f1:.3f}")
+        train_loss = running / total
+        train_acc = correct / total
+        #not really necessary
+        print(f"Epoch {epoch:02d} | train_loss={train_loss:.4f} train_acc={train_acc:.3f} train_f1={train_f1:.3f}")
+
+        wandb.log({
+            "epoch": epoch,
+            "train/loss": train_loss,
+            "train/acc": train_acc,
+            "train/f1": train_f1,
+        })
 
     model.eval()
     total, correct = 0, 0
     test_preds, test_targets = [], []
+    
+    idx_to_name = {0: "diseased", 1: "healthy"}
+
+    table = wandb.Table(columns=[
+        "image",
+        "true_label",
+        "pred_label",
+        "p(class=0)",
+        "p(class=1)",
+    ])
+
+    max_rows = 32 
+    rows_added = 0
+
     with torch.no_grad():
         for x, y in test_dl:
             x, y = x.to(device), y.to(device)
             logits = model(x)
+            probs = F.softmax(logits, dim=1) 
             pred = logits.argmax(1)
             correct += (pred == y).sum().item()
             total += y.size(0)
             test_preds.extend(pred.cpu().tolist())
             test_targets.extend(y.cpu().tolist())
+
+            if rows_added < max_rows:
+                batch_size = x.size(0)
+                for i in range(batch_size):
+                    if rows_added >= max_rows:
+                        break
+
+                    img_tensor = x[i].cpu()
+                    true_label = int(y[i].cpu().item())
+                    pred_label = int(pred[i].cpu().item())
+                    p0 = float(probs[i,0].cpu().item())
+                    p1 = float(probs[i,1].cpu().item())
+
+                    pil_img = to_pil_image(
+                        img_tensor * torch.tensor([0.229,0.224,0.225]).view(3,1,1)
+                        + torch.tensor([0.485,0.456,0.406]).view(3,1,1)
+                    ).convert("RGB")
+
+                    table.add_data(
+                        wandb.Image(pil_img),
+                        idx_to_name[true_label],
+                        idx_to_name[pred_label],
+                        p0,
+                        p1,
+                    )
+
+                    rows_added += 1
     test_f1 = f1_score(test_targets, test_preds)
-    print(f"TEST acc = {correct/total:.3f} TEST f1 = {test_f1:.3f}")
+    test_acc = correct / total
+    print(f"TEST acc = {test_acc:.3f} TEST f1 = {test_f1:.3f}")
+
+    wandb.log({
+        "test/acc": test_acc,
+        "test/f1": test_f1,
+        "examples": table,
+    })
 
     out = Path(args.out_dir); out.mkdir(parents=True, exist_ok=True)
+    model_path = out / "resnet18_binary.pt"
     torch.save(model.state_dict(), out/"resnet18_binary.pt")
     print("Saved:", out/"resnet18_binary.pt")
+    wandb.save(str(model_path))
+
+    wandb.finish()
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()

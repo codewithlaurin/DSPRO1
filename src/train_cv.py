@@ -54,8 +54,7 @@ def evaluate_params():
         project="plant-health-classification",
         config=config,
     ) as run:
-
-        for fold in range(run.config['k_folds']):
+        for fold in range(run.config["k_folds"]):
             run.define_metric(f"fold_{fold}/*", step_metric=f"fold_{fold}/epoch")
 
         print("PARAMS", end="")
@@ -72,6 +71,8 @@ def cross_validation(run, config):
     kfold = StratifiedKFold(config["k_folds"], shuffle=True, random_state=42)
 
     dataset: ImageFolder = get_train_dataset()
+
+    print(f"SAMPLES | {len(dataset)}")
 
     fold_params = []
     fold_scores = []

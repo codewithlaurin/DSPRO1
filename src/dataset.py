@@ -3,8 +3,6 @@ import os
 import random
 import shutil
 
-from tqdm import tqdm
-
 import kagglehub
 from sklearn.model_selection import train_test_split
 from torchvision import transforms
@@ -25,7 +23,9 @@ DATA_TRANSFORMS = {
             transforms.RandomResizedCrop(256),
             transforms.RandomHorizontalFlip(),
             transforms.RandomRotation(15),
-            transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1),
+            transforms.ColorJitter(
+                brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1
+            ),
             transforms.ToTensor(),
             transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
         ]
@@ -105,7 +105,7 @@ def split_data(test_size=0.2, random_state=42, out_dir=SPLIT_OUT_DIR):
 
 def split_balanced_binary(
     test_size=0.2,
-    random_state=27,
+    random_state=42,
     out_dir=BINARY_OUT_DIR,
     balance=True,
 ):
@@ -126,7 +126,9 @@ def split_balanced_binary(
             if os.path.isfile(img_path):
                 bucket.append(img_path)
 
-    print(f"found {len(healthy)} healthy and {len(unhealthy)} unhealthy images before balancing")
+    print(
+        f"found {len(healthy)} healthy and {len(unhealthy)} unhealthy images before balancing"
+    )
 
     rng = random.Random(random_state)
     if balance:
@@ -181,14 +183,27 @@ def copy_files(paths, labels, split, out_dir=SPLIT_OUT_DIR):
         shutil.copy(path, dest_dir)
 
 
-def get_train_dataset(transform=None):
-    train_path = os.path.join(SPLIT_OUT_DIR, "train")
+def get_train_dataset(transform=None, binary=False):
+    train_path = os.path.join(BINARY_OUT_DIR if binary else SPLIT_OUT_DIR, "train")
 
     if not os.path.isdir(train_path) or len(os.listdir(train_path)) == 0:
-        split_data()
+        if binary:
+            split_balanced_binary()
+        else:
+            split_data()
 
     return ImageFolder(root=train_path, transform=transform)
 
+def get_test_dataset(binary=False):
+    test_path = os.path.join(BINARY_OUT_DIR if binary else SPLIT_OUT_DIR, "test")
+
+    if not os.path.isdir(test_path) or len(os.listdir(test_path)) == 0:
+        if binary:
+            split_balanced_binary()
+        else:
+            split_data()
+
+    return ImageFolder(root=test_path, transform=DATA_TRANSFORMS['val'])
 
 
 def parse_args():
@@ -199,8 +214,12 @@ def parse_args():
         default="multiclass",
         help="multiclass keeps original labels, binary collapses to healthy/unhealthy",
     )
-    parser.add_argument("--out-dir", default=SPLIT_OUT_DIR, help="output directory for the splits")
-    parser.add_argument("--test-size", type=float, default=0.2, help="fraction reserved for testing")
+    parser.add_argument(
+        "--out-dir", default=None, help="output directory for the splits"
+    )
+    parser.add_argument(
+        "--test-size", type=float, default=0.2, help="fraction reserved for testing"
+    )
     parser.add_argument("--seed", type=int, default=42, help="random seed")
     parser.add_argument(
         "--balance",
@@ -212,7 +231,9 @@ def parse_args():
 
 if __name__ == "__main__":
     args = parse_args()
-    out_dir = args.out_dir or (BINARY_OUT_DIR if args.mode == "binary" else SPLIT_OUT_DIR)
+    out_dir = args.out_dir or (
+        BINARY_OUT_DIR if args.mode == "binary" else SPLIT_OUT_DIR
+    )
     if args.mode == "binary":
         split_balanced_binary(
             test_size=args.test_size,

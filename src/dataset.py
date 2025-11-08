@@ -19,17 +19,13 @@ DATA_TRANSFORMS = {
         [
             # Add transforms
             transforms.ToTensor(),
-            transforms.Normalize(
-                [0.485, 0.456, 0.406], [0.229, 0.224, 0.225]
-            ),
+            transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
         ]
     ),
     "val": transforms.Compose(
         [
             transforms.ToTensor(),
-            transforms.Normalize(
-                [0.485, 0.456, 0.406], [0.229, 0.224, 0.225]
-            ),
+            transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
         ]
     ),
 }
@@ -49,6 +45,21 @@ CLASSES = [
     "Tomato___Tomato_Yellow_Leaf_Curl_Virus",
     "Tomato___Tomato_mosaic_virus",
     "Tomato___healthy",
+    "Pepper,_bell___Bacterial_spot",
+    "Pepper,_bell___healthy",
+    "Grape___Leaf_blight_(Isariopsis_Leaf_Spot)",
+    "Grape___Black_rot",
+    "Grape___Esca_(Black_Measles)",
+    "Grape___healthy",
+    "Corn_(maize)___Common_rust_",
+    "Corn_(maize)___Northern_Leaf_Blight",
+    "Corn_(maize)___Cercospora_leaf_spot Gray_leaf_spot",
+    "Corn_(maize)___healthy",
+    "Potato___Late_blight",
+    "Potato___Early_blight",
+    "Potato___healthy",
+    "Cherry_(including_sour)___Powdery_mildew",
+    "Cherry_(including_sour)___healthy",
 ]
 
 

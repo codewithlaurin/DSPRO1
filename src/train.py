@@ -1,92 +1,192 @@
-import argparse, torch
+import argparse
+import json
+import os
 from pathlib import Path
+
+import torch
+from sklearn.metrics import f1_score
 from torch import nn
 from torch.utils.data import DataLoader
-from torchvision import datasets, transforms, models
-from sklearn.metrics import f1_score
+from torchvision import models
+from torchvision.datasets.folder import ImageFolder
+from tqdm import tqdm
+
+import wandb
+from dataset import DATA_TRANSFORMS, get_test_dataset, get_train_dataset
+
 
 def get_device():
-    if torch.cuda.is_available(): return torch.device("cuda")
-    if hasattr(torch.backends, "mps") and torch.backends.mps.is_available(): return torch.device("mps")
+    if torch.cuda.is_available():
+        return torch.device("cuda")
+    if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+        return torch.device("mps")
     return torch.device("cpu")
 
-class BinaryMapFolder(datasets.ImageFolder):
-    def __init__(self, root, transform=None):
-        super().__init__(root, transform=transform)
-        self._bin = {idx: (1 if "healthy" in name.lower() else 0)
-                    for name, idx in self.class_to_idx.items()}
-    def __getitem__(self, i):
-        img, y = super().__getitem__(i)
-        return img, self._bin[y]
 
 def main(args):
     device = get_device()
     print("Device:", device)
 
-    tf = transforms.Compose([
-        transforms.ToTensor(),
-        transforms.Normalize([0.485,0.456,0.406],[0.229,0.224,0.225]),
-    ])
+    with wandb.init(
+        entity="mara-eckart-hochschule-luzern",
+        project="plant-health-classification",
+        job_type="final-training",
+        config=args,
+    ) as run:
+        train_ds = get_train_dataset(DATA_TRANSFORMS["train"])
+        test_ds = get_test_dataset()
 
-    train_ds = BinaryMapFolder(Path(args.data_root)/"train", transform=tf)
-    test_ds  = BinaryMapFolder(Path(args.data_root)/"test",  transform=tf)
-    train_dl = DataLoader(train_ds, batch_size=args.batch_size, shuffle=True,  num_workers=2, pin_memory=True)
-    test_dl  = DataLoader(test_ds,  batch_size=args.batch_size, shuffle=False, num_workers=2, pin_memory=True)
-    print("Classes:", train_ds.classes)
+        train_dl = DataLoader(
+            train_ds,
+            batch_size=args.batch_size,
+            shuffle=True,
+            num_workers=4,
+            pin_memory=torch.cuda.is_available(),
+        )
+        test_dl = DataLoader(
+            test_ds,
+            batch_size=args.batch_size,
+            shuffle=False,
+            num_workers=4,
+            pin_memory=torch.cuda.is_available(),
+        )
 
+        print(f"SAMPLES | TRAIN: {len(train_ds)} | TEST: {len(test_ds)}")
+        print("Classes:", train_ds.classes)
 
-    model = models.resnet18(weights=models.ResNet18_Weights.IMAGENET1K_V1)
-    model.fc = nn.Linear(model.fc.in_features, 2)
-    model.to(device)
+        model = init_model(train_ds).to(device)
 
-    criterion = nn.CrossEntropyLoss()
-    # optim = torch.optim.Adam(model.parameters(), lr=args.lr)
-    optim = torch.optim.SGD(model.parameters(), lr=args.lr, momentum=0.9)
+        criterion = nn.CrossEntropyLoss()
 
-    for epoch in range(1, args.epochs+1):
+        if args.optimizer == "adam":
+            optim = torch.optim.Adam(model.parameters(), lr=args.learning_rate)
+        else:
+            optim = torch.optim.SGD(
+                model.parameters(), lr=args.learning_rate, momentum=args.momentum
+            )
+
         model.train()
-        total, correct, running = 0, 0, 0.0
-        train_preds, train_targets = [], []
-        for x, y in train_dl:
-            x, y = x.to(device), y.to(device)
-            optim.zero_grad(set_to_none=True)
-            logits = model(x)
-            loss = criterion(logits, y)
-            loss.backward()
-            optim.step()
-            running += loss.item() * x.size(0)
-            correct += (logits.argmax(1) == y).sum().item()
-            total += y.size(0)
-            train_preds.extend(logits.argmax(1).detach().cpu().tolist())
-            train_targets.extend(y.detach().cpu().tolist())
-        train_f1 = f1_score(train_targets, train_preds)
-        print(f"Epoch {epoch:02d} | train_loss={running/total:.4f} train_acc={correct/total:.3f} train_f1={train_f1:.3f}")
+        for epoch in tqdm(range(args.epochs), "Epoch", leave=False):
+            running_loss = 0.0
+            running_corrects = 0
+            total_samples = 0
+            total_preds = []
+            total_targets = []
 
-    model.eval()
-    total, correct = 0, 0
-    test_preds, test_targets = [], []
-    with torch.no_grad():
-        for x, y in test_dl:
-            x, y = x.to(device), y.to(device)
-            logits = model(x)
-            pred = logits.argmax(1)
-            correct += (pred == y).sum().item()
-            total += y.size(0)
-            test_preds.extend(pred.cpu().tolist())
-            test_targets.extend(y.cpu().tolist())
-    test_f1 = f1_score(test_targets, test_preds)
-    print(f"TEST acc = {correct/total:.3f} TEST f1 = {test_f1:.3f}")
+            for x, y in tqdm(train_dl, "Train", leave=False):
+                x = x.to(device)
+                y = y.to(device)
 
-    out = Path(args.out_dir); out.mkdir(parents=True, exist_ok=True)
-    torch.save(model.state_dict(), out/"resnet18_binary.pt")
-    print("Saved:", out/"resnet18_binary.pt")
+                optim.zero_grad(set_to_none=True)
+
+                outputs = model(x)
+
+                _, preds = torch.max(outputs, 1)
+
+                loss = criterion(outputs, y)
+
+                loss.backward()
+                optim.step()
+
+                total_samples += x.size(0)
+                running_loss += loss.item() * x.size(0)
+                running_corrects += torch.sum(preds == y.data).item()
+
+                total_preds.extend(preds.cpu().tolist())
+                total_targets.extend(y.cpu().tolist())
+
+            train_loss = running_loss / total_samples
+            train_acc = running_corrects / total_samples
+            train_f1 = f1_score(total_targets, total_preds, average="macro")
+
+            tqdm.write(
+                f"Epoch {epoch:02d} | train_loss={train_loss:.4f} train_acc={train_acc:.3f} train_f1={train_f1:.3f}"
+            )
+
+            run.log(
+                {
+                    "epoch": epoch,
+                    "train_loss": train_loss,
+                    "train_acc": train_acc,
+                    "train_f1": train_f1,
+                }
+            )
+
+        out = Path(args.out_dir)
+        out.mkdir(parents=True, exist_ok=True)
+
+        class_names_path = os.path.join(out, "class_names.json")
+        model_path = os.path.join(out, "plant_disease_model.pt")
+
+        with open(class_names_path, "w") as f:
+            json.dump(train_ds.classes, f)
+        torch.save(model.state_dict(), model_path)
+
+        artifact = wandb.Artifact(name=f"plant-disease-model-{run.id}", type="model")
+        artifact.add_file(model_path)
+        artifact.add_file(class_names_path)
+        run.log_artifact(artifact)
+
+        if not args.test:
+            return
+
+        model.eval()
+        with torch.no_grad():
+            running_loss = 0.0
+            running_corrects = 0
+            total_samples = 0
+            total_preds = []
+            total_targets = []
+
+            for x, y in tqdm(test_dl, "Test", leave=False):
+                x = x.to(device)
+                y = y.to(device)
+
+                outputs = model(x)
+
+                _, preds = torch.max(outputs, 1)
+
+                loss = criterion(outputs, y)
+
+                total_samples += x.size(0)
+                running_loss += loss.item() * x.size(0)
+                running_corrects += torch.sum(preds == y.data).item()
+
+                total_preds.extend(preds.cpu().tolist())
+                total_targets.extend(y.cpu().tolist())
+
+            test_loss = running_loss / total_samples
+            test_acc = running_corrects / total_samples
+            test_f1 = f1_score(total_targets, total_preds, average="macro")
+        print(
+            f"TEST | test_loss={test_loss:.4f} test_acc={test_acc:.3f} test_f1={test_f1:.3f}"
+        )
+
+        run.summary["test_loss"] = test_loss
+        run.summary["test_acc"] = test_acc
+        run.summary["test_f1"] = test_f1
+
+
+def init_model(dataset: ImageFolder):
+    model = models.resnet18(weights=models.ResNet18_Weights.IMAGENET1K_V1)
+    # Freeze layer params
+    for param in model.parameters():
+        param.requires_grad = False
+
+    model.fc = nn.Linear(model.fc.in_features, len(dataset.classes))
+
+    return model
+
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--data_root", required=True, help="folder with train/ and test/")
-    ap.add_argument("--batch_size", type=int, default=32)
-    ap.add_argument("--epochs", type=int, default=5)
-    ap.add_argument("--lr", type=float, default=1e-3)
-    ap.add_argument("--out_dir", default="results")
+    ap.add_argument("--batch_size", type=int, default=64)
+    ap.add_argument("--epochs", type=int, default=25)
+    ap.add_argument("--learning_rate", type=float, default=1e-3)
+    ap.add_argument("--optimizer", default="sgd")
+    ap.add_argument("--momentum", type=float, default=0.9)
+    ap.add_argument("--out_dir", default="output")
+    ap.add_argument("--test", action="store_true")
     args = ap.parse_args()
     main(args)

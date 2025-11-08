@@ -288,8 +288,8 @@ def get_conf_mat(model, val_loader):
         for x, y in tqdm(val_loader, "Conf matrix", leave=False):
             x = x.to(device)
             y = y.to(device)
+
             outputs = model(x)
-            print(outputs.shape)
             _, preds = torch.max(outputs, 1)
 
             total_preds.extend(preds.cpu().tolist())

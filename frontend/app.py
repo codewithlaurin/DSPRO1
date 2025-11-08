@@ -14,11 +14,11 @@ st.write("Upload a plant leaf image and get a quick prediction from your model."
 @st.cache_resource
 def load_model(model_path="plant_disease_model.pt"):
     """
-    Loads a ResNet18 model with a custom classifier (27 classes)
+    Loads a ResNet18 model with a custom classifier (29 classes)
     and applies the saved weights.
     """
     model = models.resnet18(weights=models.ResNet18_Weights.IMAGENET1K_V1)
-    model.fc = nn.Linear(model.fc.in_features, 27)
+    model.fc = nn.Linear(model.fc.in_features, 29)
 
     state_dict = torch.load(model_path, map_location=torch.device("cpu"))
     model.load_state_dict(state_dict)
@@ -45,9 +45,8 @@ if uploaded_file is not None:
 
         from torchvision import transforms
 
-        preprocess = transforms.Compose(
+        tensor_norm = transforms.Compose(
             [
-                transforms.Resize((224, 224)),
                 transforms.ToTensor(),
                 transforms.Normalize(
                     mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]
@@ -55,12 +54,22 @@ if uploaded_file is not None:
             ]
         )
 
-        input_tensor = preprocess(image).unsqueeze(0)
+        preprocess = transforms.Compose(
+            [
+                transforms.Resize(294),
+                #transforms.CenterCrop(256),
+                transforms.FiveCrop(256),
+                transforms.Lambda(lambda crops: torch.stack([tensor_norm(crop) for crop in crops])),
+            ]
+        )
+
+        input_tensor = preprocess(image)
 
         with torch.no_grad():
             outputs = model(input_tensor)
-            probabilities = torch.nn.functional.softmax(outputs, dim=1)
-            confidence, predicted_class = torch.max(probabilities, dim=1)
+            avg_outputs = torch.mean(outputs, 0)
+            probabilities = torch.nn.functional.softmax(avg_outputs, dim=0)
+            confidence, predicted_class = torch.max(probabilities, dim=0)
 
         # --- Class labels ---
         CLASS_NAMES = [
@@ -68,6 +77,8 @@ if uploaded_file is not None:
             "Apple___Black_rot",
             "Apple___Cedar_apple_rust",
             "Apple___healthy",
+            "Cherry_(including_sour)___Powdery_mildew",
+            "Cherry_(including_sour)___healthy",
             "Corn_(maize)___Cercospora_leaf_spot Gray_leaf_spot",
             "Corn_(maize)___Common_rust_",
             "Corn_(maize)___Northern_Leaf_Blight",

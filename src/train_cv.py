@@ -1,10 +1,10 @@
+import json
 import os
 
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
-import wandb
 from sklearn.metrics import f1_score
 from sklearn.model_selection import StratifiedKFold
 from sympy.logic.boolalg import true
@@ -14,6 +14,7 @@ from torchvision import models
 from torchvision.datasets.folder import ImageFolder
 from tqdm import tqdm
 
+import wandb
 from dataset import DATA_TRANSFORMS, PROJECT_ROOT, get_train_dataset
 
 K_FOLDS = 5
@@ -35,6 +36,8 @@ def get_device():
 
 
 device = get_device()
+
+dataset: ImageFolder = get_train_dataset()
 
 
 def evaluate_params():
@@ -62,15 +65,12 @@ def evaluate_params():
             print(" | " + str(key) + ": " + str(value), end="")
         print()
         print(f"Using {device} device")
-        print()
 
         cross_validation(run, run.config)
 
 
 def cross_validation(run, config):
     kfold = StratifiedKFold(config["k_folds"], shuffle=True, random_state=42)
-
-    dataset: ImageFolder = get_train_dataset()
 
     print(f"SAMPLES | {len(dataset)}")
 
@@ -136,6 +136,14 @@ def cross_validation(run, config):
             f"loss={best_val_metrics['loss']:.4f} acc={best_val_metrics['acc']:.3f} f1={best_val_metrics['f1']:.3f}"
         )
 
+        model.load_state_dict(torch.load(model_params_path, weights_only=True))
+
+        run.log(
+            {
+                f"fold_{fold}/conf_mat": get_conf_mat(model, val_loader)
+            }
+        )
+
         run.summary[f"fold_{fold}/best_loss"] = best_val_metrics["loss"]
         run.summary[f"fold_{fold}/best_acc"] = best_val_metrics["acc"]
         run.summary[f"fold_{fold}/best_f1"] = best_val_metrics["f1"]
@@ -153,8 +161,10 @@ def cross_validation(run, config):
     for k, (m, s) in summary.items():
         print(f"{k}: {m:.4f} ± {s:.4f}")
 
-    for params in fold_params:
-        run.save(params)
+    with open(os.path.join(OUTPUT_DIR, "class_names.json"), "w") as f:
+        json.dump(dataset.classes, f)
+
+    run.save(os.path.join(OUTPUT_DIR, "*"))
 
     run.summary["avg_val_acc"] = summary["acc"][0]
     run.summary["std_val_acc"] = summary["acc"][1]
@@ -185,7 +195,7 @@ def train_fold(
     for epoch in tqdm(range(num_epochs), "Epoch", leave=False):
         model.train()
 
-        _, train_loss, train_acc = epoch_phase(
+        _, train_loss, train_acc = run_epoch_phase(
             model, criterion, optimizer, train_loader
         )
 
@@ -196,7 +206,7 @@ def train_fold(
         model.eval()
 
         with torch.no_grad():
-            val_f1, val_loss, val_acc = epoch_phase(
+            val_f1, val_loss, val_acc = run_epoch_phase(
                 model, criterion, optimizer, val_loader, False
             )
 
@@ -226,7 +236,7 @@ def train_fold(
     return model_params_path, best_metrics
 
 
-def epoch_phase(model, criterion, optimizer, loader, train=True):
+def run_epoch_phase(model, criterion, optimizer, loader, train=True):
     running_loss = 0.0
     running_corrects = 0
     total_samples = 0
@@ -267,6 +277,25 @@ def epoch_phase(model, criterion, optimizer, loader, train=True):
     f1 = f1_score(total_targets, total_preds, average="macro")
 
     return f1, loss, acc
+
+
+def get_conf_mat(model, val_loader):
+    total_preds = []
+    total_targets = []
+    model.eval()
+
+    with torch.no_grad():
+        for x, y in tqdm(val_loader, "Conf matrix", leave=False):
+            x = x.to(device)
+            y = y.to(device)
+            outputs = model(x)
+            print(outputs.shape)
+            _, preds = torch.max(outputs, 1)
+
+            total_preds.extend(preds.cpu().tolist())
+            total_targets.extend(y.cpu().tolist())
+
+    return wandb.plot.confusion_matrix(None, total_targets, total_preds, dataset.classes)
 
 
 if __name__ == "__main__":

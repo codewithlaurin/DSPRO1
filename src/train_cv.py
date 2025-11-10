@@ -7,7 +7,6 @@ import torch.nn as nn
 import torch.optim as optim
 from sklearn.metrics import f1_score
 from sklearn.model_selection import StratifiedKFold
-from sympy.logic.boolalg import true
 from torch.utils.data import Subset
 from torch.utils.data.dataloader import DataLoader
 from torchvision import models
@@ -138,11 +137,7 @@ def cross_validation(run, config):
 
         model.load_state_dict(torch.load(model_params_path, weights_only=True))
 
-        run.log(
-            {
-                f"fold_{fold}/conf_mat": get_conf_mat(model, val_loader)
-            }
-        )
+        run.log({f"fold_{fold}/conf_mat": get_conf_mat(model, val_loader)})
 
         run.summary[f"fold_{fold}/best_loss"] = best_val_metrics["loss"]
         run.summary[f"fold_{fold}/best_acc"] = best_val_metrics["acc"]
@@ -295,7 +290,9 @@ def get_conf_mat(model, val_loader):
             total_preds.extend(preds.cpu().tolist())
             total_targets.extend(y.cpu().tolist())
 
-    return wandb.plot.confusion_matrix(None, total_targets, total_preds, dataset.classes)
+    return wandb.plot.confusion_matrix(
+        None, total_targets, total_preds, dataset.classes
+    )
 
 
 if __name__ == "__main__":

@@ -107,8 +107,6 @@ def cross_validation(run, config):
 
         criterion = nn.CrossEntropyLoss()
 
-        # run.watch(model, criterion, log="all", log_freq=100)  # Makes training slower :(
-
         if config["optimizer"] == "adam":
             optimizer = optim.Adam(model.parameters(), config["learning_rate"])
         else:

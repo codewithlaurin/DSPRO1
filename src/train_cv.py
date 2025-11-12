@@ -76,15 +76,15 @@ def cross_validation(run, config):
     fold_params = []
     fold_scores = []
 
+    train_folder = get_train_dataset(DATA_TRANSFORMS["train"])
+    val_folder = get_train_dataset(DATA_TRANSFORMS["val"])
+
     for fold, (train_idx, val_idx) in tqdm(
         enumerate(kfold.split(dataset.samples, dataset.targets)),
         "KFold",
         config["k_folds"],
         leave=False,
     ):
-        train_folder = get_train_dataset(DATA_TRANSFORMS["train"])
-        val_folder = get_train_dataset(DATA_TRANSFORMS["val"])
-
         fold_train = Subset(train_folder, train_idx)
         fold_val = Subset(val_folder, val_idx)
 

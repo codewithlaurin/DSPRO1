@@ -56,8 +56,8 @@ if uploaded_file is not None:
 
         preprocess = transforms.Compose(
             [
-                transforms.Resize(294),
-                transforms.FiveCrop(256),
+                transforms.Resize(256),
+                transforms.FiveCrop(224),
                 transforms.Lambda(lambda crops: torch.stack([tensor_norm(crop) for crop in crops])),
             ]
         )

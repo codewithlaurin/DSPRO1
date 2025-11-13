@@ -209,3 +209,5 @@ __marimo__/
 .python-version
 
 data/
+src/wandb
+output/

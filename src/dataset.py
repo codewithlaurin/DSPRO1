@@ -3,10 +3,11 @@ import os
 import random
 import shutil
 
-from tqdm import tqdm
-
 import kagglehub
 from sklearn.model_selection import train_test_split
+from torchvision import transforms
+from torchvision.datasets import ImageFolder
+from tqdm import tqdm
 
 IMAGE_TYPE_COLOR = "/plantvillage dataset/color/"
 IMAGE_TYPE_SEGMENTED = "/plantvillage dataset/segmented/"
@@ -15,6 +16,29 @@ IMAGE_TYPE_GRAYSCALE = "/plantvillage dataset/grayscale/"
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SPLIT_OUT_DIR = os.path.join(PROJECT_ROOT, "data")
 BINARY_OUT_DIR = os.path.join(PROJECT_ROOT, "data_binary")
+
+DATA_TRANSFORMS = {
+    "train": transforms.Compose(
+        [
+            transforms.RandomResizedCrop(224),
+            transforms.RandomHorizontalFlip(),
+            transforms.RandomRotation(15),
+            transforms.ColorJitter(
+                brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1
+            ),
+            transforms.ToTensor(),
+            transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
+        ]
+    ),
+    "val": transforms.Compose(
+        [
+            transforms.Resize(256),
+            transforms.CenterCrop(224),
+            transforms.ToTensor(),
+            transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
+        ]
+    ),
+}
 
 CLASSES = [
     "Apple___Apple_scab",
@@ -31,6 +55,21 @@ CLASSES = [
     "Tomato___Tomato_Yellow_Leaf_Curl_Virus",
     "Tomato___Tomato_mosaic_virus",
     "Tomato___healthy",
+    "Pepper,_bell___Bacterial_spot",
+    "Pepper,_bell___healthy",
+    "Grape___Leaf_blight_(Isariopsis_Leaf_Spot)",
+    "Grape___Black_rot",
+    "Grape___Esca_(Black_Measles)",
+    "Grape___healthy",
+    "Corn_(maize)___Common_rust_",
+    "Corn_(maize)___Northern_Leaf_Blight",
+    "Corn_(maize)___Cercospora_leaf_spot Gray_leaf_spot",
+    "Corn_(maize)___healthy",
+    "Potato___Late_blight",
+    "Potato___Early_blight",
+    "Potato___healthy",
+    "Cherry_(including_sour)___Powdery_mildew",
+    "Cherry_(including_sour)___healthy",
 ]
 
 
@@ -38,7 +77,7 @@ def get_data_path(img_type=IMAGE_TYPE_COLOR):
     return kagglehub.dataset_download("abdallahalidev/plantvillage-dataset") + img_type
 
 
-def split_data(test_size=0.2, random_state=27, out_dir=SPLIT_OUT_DIR):
+def split_data(test_size=0.2, random_state=42, out_dir=SPLIT_OUT_DIR):
     """Split the multi-class dataset exactly as provided by PlantVillage."""
     root = get_data_path()
     print("splitting dataset (multi-class)")
@@ -66,7 +105,7 @@ def split_data(test_size=0.2, random_state=27, out_dir=SPLIT_OUT_DIR):
 
 def split_balanced_binary(
     test_size=0.2,
-    random_state=27,
+    random_state=42,
     out_dir=BINARY_OUT_DIR,
     balance=True,
 ):
@@ -87,7 +126,9 @@ def split_balanced_binary(
             if os.path.isfile(img_path):
                 bucket.append(img_path)
 
-    print(f"found {len(healthy)} healthy and {len(unhealthy)} unhealthy images before balancing")
+    print(
+        f"found {len(healthy)} healthy and {len(unhealthy)} unhealthy images before balancing"
+    )
 
     rng = random.Random(random_state)
     if balance:
@@ -142,6 +183,29 @@ def copy_files(paths, labels, split, out_dir=SPLIT_OUT_DIR):
         shutil.copy(path, dest_dir)
 
 
+def get_train_dataset(transform=None, binary=False):
+    train_path = os.path.join(BINARY_OUT_DIR if binary else SPLIT_OUT_DIR, "train")
+
+    if not os.path.isdir(train_path) or len(os.listdir(train_path)) == 0:
+        if binary:
+            split_balanced_binary()
+        else:
+            split_data()
+
+    return ImageFolder(root=train_path, transform=transform)
+
+def get_test_dataset(binary=False):
+    test_path = os.path.join(BINARY_OUT_DIR if binary else SPLIT_OUT_DIR, "test")
+
+    if not os.path.isdir(test_path) or len(os.listdir(test_path)) == 0:
+        if binary:
+            split_balanced_binary()
+        else:
+            split_data()
+
+    return ImageFolder(root=test_path, transform=DATA_TRANSFORMS['val'])
+
+
 def parse_args():
     parser = argparse.ArgumentParser(description="Split PlantVillage dataset")
     parser.add_argument(
@@ -150,9 +214,13 @@ def parse_args():
         default="multiclass",
         help="multiclass keeps original labels, binary collapses to healthy/unhealthy",
     )
-    parser.add_argument("--out-dir", default=None, help="output directory for the splits")
-    parser.add_argument("--test-size", type=float, default=0.2, help="fraction reserved for testing")
-    parser.add_argument("--seed", type=int, default=27, help="random seed")
+    parser.add_argument(
+        "--out-dir", default=None, help="output directory for the splits"
+    )
+    parser.add_argument(
+        "--test-size", type=float, default=0.2, help="fraction reserved for testing"
+    )
+    parser.add_argument("--seed", type=int, default=42, help="random seed")
     parser.add_argument(
         "--balance",
         action="store_true",
@@ -163,7 +231,9 @@ def parse_args():
 
 if __name__ == "__main__":
     args = parse_args()
-    out_dir = args.out_dir or (BINARY_OUT_DIR if args.mode == "binary" else SPLIT_OUT_DIR)
+    out_dir = args.out_dir or (
+        BINARY_OUT_DIR if args.mode == "binary" else SPLIT_OUT_DIR
+    )
     if args.mode == "binary":
         split_balanced_binary(
             test_size=args.test_size,

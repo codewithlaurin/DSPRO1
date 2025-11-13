@@ -2,7 +2,7 @@ import streamlit as st
 import torch
 import torch.nn as nn
 from PIL import Image
-from torchvision import models
+from torchvision import models, transforms
 
 # --- App title and description ---
 st.set_page_config(page_title="Plant Disease Classifier", page_icon="🌱")
@@ -43,8 +43,6 @@ if uploaded_file is not None:
     if st.button("🔍 Run Prediction"):
         st.info("Analyzing image...")
 
-        from torchvision import transforms
-
         tensor_norm = transforms.Compose(
             [
                 transforms.ToTensor(),
@@ -58,7 +56,9 @@ if uploaded_file is not None:
             [
                 transforms.Resize(256),
                 transforms.FiveCrop(224),
-                transforms.Lambda(lambda crops: torch.stack([tensor_norm(crop) for crop in crops])),
+                transforms.Lambda(
+                    lambda crops: torch.stack([tensor_norm(crop) for crop in crops])
+                ),
             ]
         )
 

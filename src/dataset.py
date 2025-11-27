@@ -5,6 +5,7 @@ import shutil
 
 import kagglehub
 from sklearn.model_selection import train_test_split
+from torch import NoneType
 from torchvision import transforms
 from torchvision.datasets import ImageFolder
 from tqdm import tqdm
@@ -103,6 +104,42 @@ def split_data(test_size=0.2, random_state=42, out_dir=SPLIT_OUT_DIR):
     copy_files(test_paths, test_labels, "test", out_dir)
 
 
+def split_hold_out(test_size=0.2, random_state=42, out_dir=SPLIT_OUT_DIR):
+    """Split the multi-class dataset exactly as provided by PlantVillage. With a hold out val set"""
+
+    root = get_data_path()
+    print("splitting dataset (multi-class + val)")
+
+    files = []
+    labels = []
+
+    for label in CLASSES:
+        label_dir = os.path.join(root, label)
+        if not os.path.isdir(label_dir):
+            continue
+        for img in os.listdir(label_dir):
+            img_path = os.path.join(label_dir, img)
+            if os.path.isfile(img_path):
+                files.append(img_path)
+                labels.append(label)
+
+    train_paths, test_paths, train_labels, test_labels = train_test_split(
+        files, labels, stratify=labels, test_size=test_size, random_state=random_state
+    )
+
+    train_paths, val_paths, train_labels, val_labels = train_test_split(
+        train_paths,
+        train_labels,
+        stratify=train_labels,
+        test_size=test_size,
+        random_state=random_state,
+    )
+
+    copy_files(train_paths, train_labels, "train", out_dir)
+    copy_files(test_paths, test_labels, "test", out_dir)
+    copy_files(val_paths, val_labels, "val", out_dir)
+
+
 def split_balanced_binary(
     test_size=0.2,
     random_state=42,
@@ -194,6 +231,7 @@ def get_train_dataset(transform=None, binary=False):
 
     return ImageFolder(root=train_path, transform=transform)
 
+
 def get_test_dataset(binary=False):
     test_path = os.path.join(BINARY_OUT_DIR if binary else SPLIT_OUT_DIR, "test")
 
@@ -203,14 +241,23 @@ def get_test_dataset(binary=False):
         else:
             split_data()
 
-    return ImageFolder(root=test_path, transform=DATA_TRANSFORMS['val'])
+    return ImageFolder(root=test_path, transform=DATA_TRANSFORMS["val"])
+
+
+def get_val_dataset(binary=False):
+    val_path = os.path.join(BINARY_OUT_DIR if binary else SPLIT_OUT_DIR, "val")
+
+    if not os.path.isdir(val_path) or len(os.listdir(val_path)) == 0:
+        return None
+
+    return ImageFolder(root=val_path, transform=DATA_TRANSFORMS["val"])
 
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Split PlantVillage dataset")
     parser.add_argument(
         "--mode",
-        choices=["multiclass", "binary"],
+        choices=["multiclass", "binary", "hold-out"],
         default="multiclass",
         help="multiclass keeps original labels, binary collapses to healthy/unhealthy",
     )
@@ -240,6 +287,10 @@ if __name__ == "__main__":
             random_state=args.seed,
             out_dir=out_dir,
             balance=args.balance,
+        )
+    elif args.mode == "hold-out":
+        split_hold_out(
+            test_size=args.test_size, random_state=args.seed, out_dir=out_dir
         )
     else:
         split_data(test_size=args.test_size, random_state=args.seed, out_dir=out_dir)

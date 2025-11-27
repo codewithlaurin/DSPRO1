@@ -12,6 +12,7 @@ from torch.utils.data.dataloader import DataLoader
 from torchvision import models
 from torchvision.datasets.folder import ImageFolder
 from tqdm import tqdm
+from utils import set_seed
 
 import wandb
 from dataset import DATA_TRANSFORMS, PROJECT_ROOT, get_train_dataset
@@ -33,6 +34,7 @@ def get_device():
         return torch.device("mps")
     return torch.device("cpu")
 
+set_seed(42)
 
 device = get_device()
 

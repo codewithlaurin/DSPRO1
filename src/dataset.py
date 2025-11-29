@@ -35,7 +35,11 @@ def random_noise(img: Image.Image, threshold: int = 5):
 
     dilated_mask = binary_dilation(mask, iterations=3)
 
-    noise = np.random.randint(0, 256, arr.shape, dtype=np.uint8)
+    mean_color = [[50, 100, 50], [80, 70, 60], [185, 180, 170]]
+    idx_color = np.random.randint(0, 3)
+    epsilon = 25
+
+    noise = np.random.normal(mean_color[idx_color], epsilon, arr.shape).astype(np.uint8)
 
     arr[dilated_mask] = noise[dilated_mask]
 
@@ -45,7 +49,11 @@ def random_noise(img: Image.Image, threshold: int = 5):
 DATA_TRANSFORMS = {
     "train": transforms.Compose(
         [
-            transforms.Lambda(lambda x: random_noise(x, 5)),
+            transforms.RandomApply(
+                [
+                    transforms.Lambda(lambda x: random_noise(x, 5)),
+                ]
+            ),
             transforms.RandomResizedCrop(224),
             transforms.RandomHorizontalFlip(),
             transforms.RandomVerticalFlip(),

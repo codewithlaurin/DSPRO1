@@ -4,8 +4,10 @@ import random
 import shutil
 
 import kagglehub
+import numpy as np
+from PIL import Image
+from scipy.ndimage import binary_dilation
 from sklearn.model_selection import train_test_split
-from torch import NoneType
 from torchvision import transforms
 from torchvision.datasets import ImageFolder
 from tqdm import tqdm
@@ -18,9 +20,32 @@ PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SPLIT_OUT_DIR = os.path.join(PROJECT_ROOT, "data")
 BINARY_OUT_DIR = os.path.join(PROJECT_ROOT, "data_binary")
 
+
+def random_noise(img: Image.Image, threshold: int = 5):
+    arr = np.array(img)
+
+    mask = (
+        (arr[:, :, 0] < threshold)
+        & (arr[:, :, 1] < threshold)
+        & (arr[:, :, 2] < threshold)
+    )
+
+    if not np.any(mask):
+        return img
+
+    dilated_mask = binary_dilation(mask, iterations=3)
+
+    noise = np.random.randint(0, 256, arr.shape, dtype=np.uint8)
+
+    arr[dilated_mask] = noise[dilated_mask]
+
+    return Image.fromarray(arr)
+
+
 DATA_TRANSFORMS = {
     "train": transforms.Compose(
         [
+            transforms.Lambda(lambda x: random_noise(x, 5)),
             transforms.RandomResizedCrop(224),
             transforms.RandomHorizontalFlip(),
             transforms.RandomVerticalFlip(),
@@ -76,7 +101,7 @@ CLASSES = [
 ]
 
 
-def get_data_path(img_type=IMAGE_TYPE_COLOR):
+def get_data_path(img_type=IMAGE_TYPE_SEGMENTED):
     return kagglehub.dataset_download("abdallahalidev/plantvillage-dataset") + img_type
 
 

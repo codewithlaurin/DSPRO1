@@ -21,6 +21,7 @@ BATCH_SIZE = 64
 LEARNING_RATE = 0.001
 MOMENTUM = 0.9
 NUM_EPOCHS = 150
+WEIGHT_DECAY = 0.00001
 
 OUTPUT_DIR = Path(PROJECT_ROOT) / "output"
 MODEL_PARAMS_PATH = OUTPUT_DIR / "best_model_params.pt"
@@ -57,9 +58,9 @@ def init_model(num_classes: int):
 
 def get_optimizer(params, config, lr):
     if config.optimizer == "adam":
-        return optim.Adam(params, lr)
+        return optim.Adam(params, lr, weight_decay=config.weight_decay)
     else:
-        return optim.SGD(params, lr, config.momentum)
+        return optim.SGD(params, lr, config.momentum, weight_decay=config.weight_decay)
 
 
 def evaluate_params():
@@ -69,6 +70,7 @@ def evaluate_params():
         "batch_size": BATCH_SIZE,
         "learning_rate": LEARNING_RATE,
         "momentum": MOMENTUM,
+        "weight_decay": WEIGHT_DECAY,
         "optimizer": "adam",
         "architecture": "ResNet18",
     }
@@ -80,7 +82,7 @@ def evaluate_params():
     ) as run:
         config = run.config
         print("PARAMS", end="")
-        for key, value in run.config.items():
+        for key, value in config.items():
             print(" | " + str(key) + ": " + str(value), end="")
         print()
         print(f"Using {DEVICE} device")

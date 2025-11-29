@@ -49,11 +49,7 @@ def random_noise(img: Image.Image, threshold: int = 5):
 DATA_TRANSFORMS = {
     "train": transforms.Compose(
         [
-            transforms.RandomApply(
-                [
-                    transforms.Lambda(lambda x: random_noise(x, 5)),
-                ]
-            ),
+            transforms.Lambda(lambda x: random_noise(x, 5)),
             transforms.RandomResizedCrop(224),
             transforms.RandomHorizontalFlip(),
             transforms.RandomVerticalFlip(),

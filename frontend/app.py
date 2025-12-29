@@ -68,7 +68,7 @@ if uploaded_file is not None:
             outputs = model(input_tensor)
             avg_outputs = torch.mean(outputs, 0)
             probabilities = torch.nn.functional.softmax(avg_outputs, dim=0)
-            confidence, predicted_class = torch.max(probabilities, dim=0)
+            confidence, idx = torch.topk(probabilities, 3, dim=0)
 
         # --- Class labels ---
         CLASS_NAMES = [
@@ -103,10 +103,20 @@ if uploaded_file is not None:
             "Tomato___healthy",
         ]
 
-        predicted_label = CLASS_NAMES[predicted_class.item()]
-        confidence_score = confidence.item() * 100
+        top_probs = confidence.tolist()
+        top_indices = idx.tolist()
 
-        # --- Display result ---
-        st.success(
-            f"✅ Prediction: **{predicted_label}** ({confidence_score:.2f}% confidence)"
-        )
+        main_prediction = CLASS_NAMES[top_indices[0]]
+        main_score = top_probs[0]
+
+        st.success(f"✅ Prediction: **{main_prediction}** ({main_score*100:.2f}% confidence)")
+
+        st.write("---")
+        st.write("**Top 3 Candidates:**")
+
+        for i in range(3):
+            name = CLASS_NAMES[top_indices[i]]
+            score = top_probs[i]
+            
+            st.write(f"{name} ({score*100:.2f}%)")
+            st.progress(score)

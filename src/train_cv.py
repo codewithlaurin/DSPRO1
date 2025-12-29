@@ -12,6 +12,7 @@ from torch.utils.data.dataloader import DataLoader
 from torchvision import models
 from torchvision.datasets.folder import ImageFolder
 from tqdm import tqdm
+from utils import set_seed
 
 import wandb
 from dataset import DATA_TRANSFORMS, PROJECT_ROOT, get_train_dataset
@@ -20,7 +21,7 @@ K_FOLDS = 5
 BATCH_SIZE = 64
 LEARNING_RATE = 0.001
 MOMENTUM = 0.9
-NUM_EPOCHS = 25
+NUM_EPOCHS = 150
 
 OUTPUT_DIR = os.path.join(PROJECT_ROOT, "output")
 os.makedirs(OUTPUT_DIR, exist_ok=True)
@@ -33,6 +34,7 @@ def get_device():
         return torch.device("mps")
     return torch.device("cpu")
 
+set_seed(42)
 
 device = get_device()
 
@@ -185,6 +187,8 @@ def train_fold(
 
     best_metrics = {"f1": -1.0, "acc": 0.0, "loss": float("inf")}
 
+    early_stop_count = 0
+
     for epoch in tqdm(range(num_epochs), "Epoch", leave=False):
         model.train()
 
@@ -207,14 +211,6 @@ def train_fold(
             f"Fold {fold:02d} | Epoch {epoch:02d} | val_loss={val_loss:.4f} val_acc={val_acc:.3f} val_f1={val_f1:.3f}"
         )
 
-        if val_f1 > best_metrics["f1"] or (
-            val_f1 == best_metrics["f1"] and val_loss < best_metrics["loss"]
-        ):
-            best_metrics["f1"] = val_f1
-            best_metrics["acc"] = val_acc
-            best_metrics["loss"] = val_loss
-            torch.save(model.state_dict(), model_params_path)
-
         run.log(
             {
                 f"fold_{fold}/epoch": epoch,
@@ -225,6 +221,19 @@ def train_fold(
                 f"fold_{fold}/val_f1": val_f1,
             },
         )
+
+        if val_f1 > best_metrics["f1"] or (
+            val_f1 == best_metrics["f1"] and val_loss < best_metrics["loss"]
+        ):
+            best_metrics["f1"] = val_f1
+            best_metrics["acc"] = val_acc
+            best_metrics["loss"] = val_loss
+            torch.save(model.state_dict(), model_params_path)
+            early_stop_count = 0
+        else:
+            early_stop_count += 1
+            if early_stop_count >= 15:
+                break
 
     return model_params_path, best_metrics
 

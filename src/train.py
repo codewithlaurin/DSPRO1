@@ -1,3 +1,4 @@
+# Train final model using all training data with optional test set evaluation
 import argparse
 import json
 import os
@@ -13,6 +14,7 @@ from tqdm import tqdm
 
 import wandb
 from dataset import DATA_TRANSFORMS, get_test_dataset, get_train_dataset
+from utils import set_seed
 
 
 def get_device():
@@ -24,6 +26,7 @@ def get_device():
 
 
 def main(args):
+    set_seed(42)
     device = get_device()
     print("Device:", device)
 
